@@ -1,0 +1,155 @@
+#!/bin/bash
+#set -x
+
+script_init() {
+# source all files required by this script
+    source ./.options.conf
+    for f in $(ls ./functions); do source ./functions/$f; done
+
+# create tmp directory for json policies if it does not exist
+    if [ ! -d ./data/json_policy ]; then
+        mkdir -p './data/json_policy'
+    fi 
+
+# create tmp directory for json conditions if it does not exist
+    if [ ! -d ./data/json_condition ]; then
+        mkdir -p './data/json_condition'
+    fi
+}
+
+hasCurl() {
+# check if curl is installed
+    which curl 2>&1 >/dev/null
+        if [ $? -ne 0 ]; then
+            echo ''curl' is needed. Please install 'curl'.'
+            exit 1
+        fi
+}
+
+hasDos2unix() {
+# check if dos2unix is installed
+    which dos2unix 2>&1 >/dev/null
+        if [ $? -ne 0 ]; then
+            echo ''dos2unix' is needed. Please install 'dos2unix'.'
+            exit 1
+        fi
+}
+
+hasJq() {
+# check if jq is installed
+    which jq 2>&1 >/dev/null
+        if [ $? -ne 0 ]; then
+	    echo ''jq' is needed. Please install 'jq'.'
+	    exit 1
+        fi
+}
+
+no_args() {
+# if no argument given then provide helpful tip on how to access help 
+    if [ -z "$*" ]; then
+        echo "No argument given; try using -h or --help" && exit 1; fi
+}
+
+parse_params() {
+    local param
+    while [[ $# -gt 0 ]]; do
+        param="$1"
+        shift
+        case $param in
+            -h|--help)
+               help 
+                ;;
+            -f|--file)
+                INPUT=$(/bin/cat $1) || exit 
+                shift
+                ;;
+            -i|--id)
+                ID="$1" || exit 
+                shift
+                ;;
+            -cc|--create_condition)
+                test ! -z "${INPUT}" && echo $INPUT | create_condition || create_condition
+                ;;
+            -cp|--create_policy)
+                test ! -z "${INPUT}" && echo $INPUT | create_policy || create_policy
+                ;;
+            -dc|--delete_condition)
+                test ! -z $ID && echo $ID | delete_condition || delete_condition 
+                ;;
+            -dp|--delete_policy)
+                test ! -z $ID && echo $ID | delete_policy || delete_policy
+                ;;
+            -lp|--list-existing-policies)
+                list_existing_policies
+                ;;
+            --parse-csv-condition)
+                format_func && DOTHECOLUMNS && PARSECSV | $(cd ./data/json_condition && split -l 1)
+                cat ./data/json_condition/*
+                ;;
+            --parse-csv-policy)
+                policy_csv2json;
+                cat ./data/json_policy/*
+                ;;
+            --get-all-policy-id)
+                get_all_policy_id
+                ;;
+            --get-all-condition-id)
+                get_all_condition_id
+                ;;
+            --get-all-policy-names)
+                get_all_policy_names
+                ;;
+            --get-all-condition-names)
+                get_all_condition_names
+                ;;
+            --post-all-conditions)
+                for f in $(ls ./data/json_condition); do ./nrcli.bsh -f ./data/json_condition/$f -cc; done
+#                rm ./data/json_condition/*
+                ;;
+            --post-all-policies)
+                for f in $(ls ./data/json_policy); do ./nrcli.bsh -f ./data/json_policy/$f -cp; done
+#                rm ./data/json_policy/*
+                ;;
+            --delete-all-conditions)
+                for condition_id in $(get_all_condition_id); do
+                  curl -v -X DELETE --header "X-Api-Key:${API}" \
+                    "https://infra-api.newrelic.com/v2/alerts/conditions/${condition_id}" & done
+                ;;
+            --delete-all-policies)
+                for policy_id in $(get_all_policy_id); do
+                  curl -X DELETE "https://api.newrelic.com/v2/alerts_policies/${policy_id}.json" \
+                    -H "X-Api-Key:${API}" & done
+                ;;
+            -lc|--list-existing-conditions-for-policy)
+                policy_id="$1"; shift 1
+                list_existing_conditions_for_policy
+                ;;
+            -gc|--get-specific-condition)
+                condition_id="$1"; shift 1
+                get_specific_condition 
+                ;;
+            --update-notification-channel)
+                channel_id="$1"
+                for i in $(get_all_policy_id); do
+                policy_id="$i"
+                update_policy_notification_channel; done 
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+}
+
+
+main() {
+    script_init "$@"
+    hasCurl
+    hasDos2unix
+    hasJq
+    no_args "$@"
+    parse_params "$@"
+}
+
+main "$@"
+
